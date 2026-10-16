@@ -1,0 +1,63 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: expenses
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: secret
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d expenses"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: ..
+      dockerfile: deployments/Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    environment:
+      DATABASE_URL: postgres://app:secret@postgres:5432/expenses?sslmode=disable
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-ollama}
+      LLM_BASE_URL: ${LLM_BASE_URL:-http://host.docker.internal:11434/v1}
+      LLM_TIMEOUT: ${LLM_TIMEOUT:-120s}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      LOG_FORMAT: ${LOG_FORMAT:-json}
+    command: ["-service", "api"]
+
+  bot:
+    build:
+      context: ..
+      dockerfile: deployments/Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://app:secret@postgres:5432/expenses?sslmode=disable
+      TELEGRAM_TOKEN: ${TELEGRAM_TOKEN}
+      TELEGRAM_PROXY: ${TELEGRAM_PROXY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_TIMEOUT: ${LLM_TIMEOUT:-120s}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      LOG_FORMAT: ${LOG_FORMAT:-json}
+    command: ["-service", "bot"]
+
+  web:
+    image: nginx:alpine
+    ports:
+      - "3000:80"
+    volumes:
+      - ../web:/usr/share/nginx/html
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - api
+
+volumes:
+  pgdata:

@@ -1,0 +1,17 @@
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Build
+/family-expenses
+/family-expenses.exe
+*.exe
+
+# Environment
+.env
+
+# OS
+.DS_Store
+Thumbs.db

@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Семейные расходы</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f5f5; padding: 20px; }
+        .container { max-width: 900px; margin: 0 auto; }
+        h1 { margin-bottom: 20px; color: #333; }
+        .filters { display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; }
+        .filters select, .filters input { padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; }
+        .btn { padding: 8px 16px; background: #007bff; color: white; border: none; border-radius: 6px; cursor: pointer; }
+        .btn:hover { background: #0056b3; }
+        .btn-danger { background: #dc3545; }
+        .btn-danger:hover { background: #c82333; }
+        table { width: 100%; border-collapse: collapse; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        th, td { padding: 12px 16px; text-align: left; border-bottom: 1px solid #eee; }
+        th { background: #f8f9fa; font-weight: 600; }
+        .total { margin-top: 20px; font-size: 18px; font-weight: bold; }
+        .form-modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 100; }
+        .form-content { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 24px; border-radius: 8px; width: 400px; }
+        .form-content input, .form-content select { width: 100%; padding: 8px; margin: 8px 0; border: 1px solid #ddd; border-radius: 4px; }
+        .form-actions { display: flex; gap: 10px; margin-top: 16px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📊 Семейные расходы</h1>
+
+        <div class="filters">
+            <select id="filterUser">
+                <option value="">Все члены семьи</option>
+            </select>
+            <select id="filterCategory">
+                <option value="">Все категории</option>
+                <option value="еда">Еда</option>
+                <option value="транспорт">Транспорт</option>
+                <option value="жильё">Жильё</option>
+                <option value="развлечения">Развлечения</option>
+                <option value="здоровье">Здоровье</option>
+                <option value="покупки">Покупки</option>
+                <option value="алкоголь">Алкоголь</option>
+                <option value="другое">Другое</option>
+            </select>
+            <input type="date" id="filterFrom">
+            <input type="date" id="filterTo">
+            <button class="btn" onclick="loadExpenses()">Применить</button>
+            <button class="btn" onclick="openForm()">+ Добавить</button>
+        </div>
+
+        <table id="expenseTable">
+            <thead>
+                <tr>
+                    <th>Дата</th>
+                    <th>Сумма</th>
+                    <th>Категория</th>
+                    <th>Комментарий</th>
+                    <th>Действия</th>
+                </tr>
+            </thead>
+            <tbody id="expenseBody"></tbody>
+        </table>
+
+        <div class="total" id="totalRow"></div>
+    </div>
+
+    <!-- Модальное окно добавления/редактирования -->
+    <div class="form-modal" id="formModal">
+        <div class="form-content">
+            <h3 id="formTitle">Добавить трату</h3>
+            <input type="number" id="formUserID" placeholder="Telegram ID" step="1">
+            <input type="number" id="formAmount" placeholder="Сумма" step="0.01">
+            <select id="formCategory">
+                <option value="еда">Еда</option>
+                <option value="транспорт">Транспорт</option>
+                <option value="жильё">Жильё</option>
+                <option value="развлечения">Развлечения</option>
+                <option value="здоровье">Здоровье</option>
+                <option value="покупки">Покупки</option>
+                <option value="алкоголь">Алкоголь</option>
+                <option value="другое">Другое</option>
+            </select>
+            <input type="date" id="formSpentAt">
+            <input type="text" id="formComment" placeholder="Комментарий">
+            <div class="form-actions">
+                <button class="btn" onclick="saveExpense()">Сохранить</button>
+                <button class="btn btn-danger" onclick="closeForm()">Отмена</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = '/api';
+        let editingId = null;
+
+        async function loadExpenses() {
+            const params = new URLSearchParams();
+            const userId = document.getElementById('filterUser').value;
+            const category = document.getElementById('filterCategory').value;
+            const dateFrom = document.getElementById('filterFrom').value;
+            const dateTo = document.getElementById('filterTo').value;
+
+            if (userId) params.set('user_id', userId);
+            if (category) params.set('category', category);
+            if (dateFrom) params.set('date_from', dateFrom);
+            if (dateTo) params.set('date_to', dateTo);
+
+            try {
+                const response = await fetch(`${API_BASE}/expenses?${params}`);
+                const expenses = await response.json();
+                renderExpenses(expenses);
+                collectUsers(expenses);
+            } catch (error) {
+                console.error('Ошибка загрузки:', error);
+            }
+        }
+
+        function renderExpenses(expenses) {
+            const tbody = document.getElementById('expenseBody');
+            tbody.innerHTML = '';
+            let total = 0;
+
+            expenses.forEach(e => {
+                total += e.amount;
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td>${new Date(e.spent_at).toLocaleDateString('ru')}</td>
+                    <td>${e.amount.toFixed(0)} ₽</td>
+                    <td>${e.category}</td>
+                    <td>${e.comment || ''}</td>
+                    <td>
+                        <button class="btn" onclick="editExpense('${e.id}')">✏️</button>
+                        <button class="btn btn-danger" onclick="deleteExpense('${e.id}')">🗑</button>
+                    </td>
+                `;
+                tbody.appendChild(row);
+            });
+
+            document.getElementById('totalRow').textContent = `Итого: ${total.toFixed(0)} ₽ за ${expenses.length} записей`;
+        }
+
+        function collectUsers(expenses) {
+            const select = document.getElementById('filterUser');
+            const current = select.value;
+            const users = new Set(expenses.map(e => e.user_id));
+
+            select.innerHTML = '<option value="">Все члены семьи</option>';
+            users.forEach(id => {
+                const option = document.createElement('option');
+                option.value = id;
+                option.textContent = `Пользователь ${id}`;
+                select.appendChild(option);
+            });
+            select.value = current;
+        }
+
+        function openForm() {
+            editingId = null;
+            document.getElementById('formTitle').textContent = 'Добавить трату';
+            document.getElementById('formUserID').value = '';
+            document.getElementById('formAmount').value = '';
+            document.getElementById('formSpentAt').value = new Date().toISOString().split('T')[0];
+            document.getElementById('formComment').value = '';
+            document.getElementById('formModal').style.display = 'block';
+        }
+
+        function closeForm() {
+            document.getElementById('formModal').style.display = 'none';
+        }
+
+        async function saveExpense() {
+            const data = {
+                user_id: parseInt(document.getElementById('formUserID').value),
+                amount: parseFloat(document.getElementById('formAmount').value),
+                category: document.getElementById('formCategory').value,
+                spent_at: document.getElementById('formSpentAt').value,
+                comment: document.getElementById('formComment').value,
+            };
+
+            try {
+                const url = editingId ? `${API_BASE}/expenses/${editingId}` : `${API_BASE}/expenses`;
+                const method = editingId ? 'PUT' : 'POST';
+
+                await fetch(url, {
+                    method,
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data),
+                });
+
+                closeForm();
+                loadExpenses();
+            } catch (error) {
+                console.error('Ошибка сохранения:', error);
+            }
+        }
+
+        async function editExpense(id) {
+            try {
+                const response = await fetch(`${API_BASE}/expenses/${id}`);
+                if (!response.ok) throw new Error('Not found');
+                const expense = await response.json();
+
+                editingId = id;
+                document.getElementById('formTitle').textContent = 'Редактировать трату';
+                document.getElementById('formUserID').value = expense.user_id;
+                document.getElementById('formAmount').value = expense.amount;
+                document.getElementById('formCategory').value = expense.category;
+                document.getElementById('formSpentAt').value = expense.spent_at ? expense.spent_at.split('T')[0] : '';
+                document.getElementById('formComment').value = expense.comment || '';
+                document.getElementById('formModal').style.display = 'block';
+            } catch (error) {
+                console.error('Ошибка загрузки:', error);
+            }
+        }
+
+        async function deleteExpense(id) {
+            if (!confirm('Удалить трату?')) return;
+            try {
+                await fetch(`${API_BASE}/expenses/${id}`, { method: 'DELETE' });
+                loadExpenses();
+            } catch (error) {
+                console.error('Ошибка удаления:', error);
+            }
+        }
+
+        // Первичная загрузка
+        loadExpenses();
+    </script>
+</body>
+</html>
