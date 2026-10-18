@@ -2,6 +2,7 @@ package http
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -22,14 +23,17 @@ func NewExpenseHandler(service *service.ExpenseService) *ExpenseHandler {
 
 // CreateRequest — запрос на создание/обновление траты.
 type CreateRequest struct {
-	UserID   int64  `json:"user_id"`
+	UserID   int64   `json:"user_id"`
 	Amount   float64 `json:"amount"`
-	Category string `json:"category"`
-	SpentAt  string `json:"spent_at"`
-	Comment  string `json:"comment"`
+	Category string  `json:"category"`
+	SpentAt  string  `json:"spent_at"`
+	Comment  string  `json:"comment"`
 }
 
 func (h *ExpenseHandler) Create(w http.ResponseWriter, r *http.Request) {
+	// Ограничение размера тела запроса (1 MB)
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+
 	var req CreateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		slog.Warn("Неверный формат запроса на создание", "error", err)
@@ -45,9 +49,18 @@ func (h *ExpenseHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 	if req.SpentAt != "" {
 		t, err := parseTime(req.SpentAt)
-		if err == nil {
-			input.SpentAt = t
+		if err != nil {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("Неверный формат даты: %s", req.SpentAt))
+			return
 		}
+		input.SpentAt = t
+	}
+
+	// Валидация входных данных
+	if err := input.Validate(); err != nil {
+		slog.Warn("Ошибка валидации при создании", "user_id", req.UserID, "error", err)
+		writeError(w, http.StatusUnprocessableEntity, err.Error())
+		return
 	}
 
 	expense, err := h.service.Add(r.Context(), req.UserID, input)
@@ -66,7 +79,7 @@ func (h *ExpenseHandler) Get(w http.ResponseWriter, r *http.Request) {
 
 	expense, err := h.service.GetByIDAll(r.Context(), id)
 	if err != nil {
-		if err == domain.ErrNotFound {
+		if errors.Is(err, domain.ErrNotFound) {
 			writeError(w, http.StatusNotFound, "Трата не найдена")
 			return
 		}
@@ -79,6 +92,9 @@ func (h *ExpenseHandler) Get(w http.ResponseWriter, r *http.Request) {
 
 func (h *ExpenseHandler) Update(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+
+	// Ограничение размера тела запроса (1 MB)
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 
 	var req CreateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -94,14 +110,22 @@ func (h *ExpenseHandler) Update(w http.ResponseWriter, r *http.Request) {
 
 	if req.SpentAt != "" {
 		t, err := parseTime(req.SpentAt)
-		if err == nil {
-			input.SpentAt = t
+		if err != nil {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("Неверный формат даты: %s", req.SpentAt))
+			return
 		}
+		input.SpentAt = t
+	}
+
+	if err := input.Validate(); err != nil {
+		slog.Warn("Ошибка валидации при обновлении", "id", id, "error", err)
+		writeError(w, http.StatusUnprocessableEntity, err.Error())
+		return
 	}
 
 	expense, err := h.service.UpdateAll(r.Context(), id, input)
 	if err != nil {
-		if err == domain.ErrNotFound {
+		if errors.Is(err, domain.ErrNotFound) {
 			writeError(w, http.StatusNotFound, "Трата не найдена")
 			return
 		}
@@ -116,7 +140,7 @@ func (h *ExpenseHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
 	if err := h.service.DeleteAll(r.Context(), id); err != nil {
-		if err == domain.ErrNotFound {
+		if errors.Is(err, domain.ErrNotFound) {
 			writeError(w, http.StatusNotFound, "Трата не найдена")
 			return
 		}
@@ -153,6 +177,16 @@ func (h *ExpenseHandler) ListAll(w http.ResponseWriter, r *http.Request) {
 		t, err := parseTime(dateTo)
 		if err == nil {
 			filter.DateTo = &t
+		}
+	}
+	if limitStr := query.Get("limit"); limitStr != "" {
+		if limit, err := strconv.Atoi(limitStr); err == nil {
+			filter.Limit = limit
+		}
+	}
+	if offsetStr := query.Get("offset"); offsetStr != "" {
+		if offset, err := strconv.Atoi(offsetStr); err == nil {
+			filter.Offset = offset
 		}
 	}
 

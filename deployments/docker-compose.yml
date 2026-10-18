@@ -17,16 +17,20 @@ services:
     build:
       context: ..
       dockerfile: deployments/Dockerfile
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       postgres:
         condition: service_healthy
     ports:
-      - "8080:8080"
+      - "8081:8080"
     environment:
       DATABASE_URL: postgres://app:secret@postgres:5432/expenses?sslmode=disable
       OPENAI_API_KEY: ${OPENAI_API_KEY:-ollama}
       LLM_BASE_URL: ${LLM_BASE_URL:-http://host.docker.internal:11434/v1}
       LLM_TIMEOUT: ${LLM_TIMEOUT:-120s}
+      LLM_MODEL: ${LLM_MODEL:-qwen3:8b}
+      LLM_PROVIDER: ${LLM_PROVIDER:-ollama}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       LOG_FORMAT: ${LOG_FORMAT:-json}
     command: ["-service", "api"]
@@ -35,6 +39,8 @@ services:
     build:
       context: ..
       dockerfile: deployments/Dockerfile
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       postgres:
         condition: service_healthy
@@ -45,6 +51,8 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       LLM_BASE_URL: ${LLM_BASE_URL:-}
       LLM_TIMEOUT: ${LLM_TIMEOUT:-120s}
+      LLM_MODEL: ${LLM_MODEL:-qwen3:8b}
+      LLM_PROVIDER: ${LLM_PROVIDER:-ollama}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       LOG_FORMAT: ${LOG_FORMAT:-json}
     command: ["-service", "bot"]

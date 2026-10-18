@@ -33,7 +33,7 @@ func main() {
 	slog.SetDefault(slog.New(handler))
 	slog.Info("Запуск Family Expenses...", "service", *service)
 
-	cfg, err := config.Load("configs/config.yaml")
+	cfg, err := config.Load()
 	if err != nil {
 		slog.Error("Загрузка конфига", "error", err)
 		os.Exit(1)

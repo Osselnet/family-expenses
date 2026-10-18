@@ -15,7 +15,6 @@ FROM alpine:3.21
 RUN apk --no-cache add ca-certificates
 WORKDIR /app
 COPY --from=builder /app /app/app
-COPY configs /app/configs
 
 ENTRYPOINT ["/app/app"]
 CMD ["-service", "api"]

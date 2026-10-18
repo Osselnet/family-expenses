@@ -3,92 +3,109 @@ package config
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"time"
-
-	"gopkg.in/yaml.v3"
 )
 
 type Config struct {
-	Server   ServerConfig   `yaml:"server"`
-	Database DatabaseConfig `yaml:"database"`
-	Telegram TelegramConfig `yaml:"telegram"`
-	LLM      LLMConfig      `yaml:"llm"`
-	Web      WebConfig      `yaml:"web"`
+	Server   ServerConfig
+	Database DatabaseConfig
+	Telegram TelegramConfig
+	LLM      LLMConfig
+	Web      WebConfig
 }
 
 type ServerConfig struct {
-	Host string `yaml:"host"`
-	Port int    `yaml:"port"`
+	Host string
+	Port int
 }
 
 type DatabaseConfig struct {
-	URL string `yaml:"url"`
+	URL string
 }
 
 type TelegramConfig struct {
-	Token       string `yaml:"token"`
-	PollTimeout int    `yaml:"poll_timeout"`
-	ProxyURL    string `yaml:"proxy_url"`
+	Token          string
+	PollTimeout    int
+	ProxyURL       string
+	MaxConcurrency int
 }
 
 type LLMConfig struct {
-	Provider    string        `yaml:"provider"`
-	BaseURL     string        `yaml:"base_url"`
-	APIKey      string        `yaml:"api_key"`
-	Model       string        `yaml:"model"`
-	Temperature float64       `yaml:"temperature"`
-	MaxTokens   int           `yaml:"max_tokens"`
-	Timeout     time.Duration `yaml:"timeout"`
+	Provider    string
+	BaseURL     string
+	APIKey      string
+	Model       string
+	Temperature float64
+	MaxTokens   int
+	Timeout     time.Duration
 }
 
 type WebConfig struct {
-	Port int `yaml:"port"`
+	Port int
 }
 
-func Load(path string) (*Config, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("read config file: %w", err)
+func Load() (*Config, error) {
+	cfg := &Config{
+		Server: ServerConfig{
+			Host: env("SERVER_HOST", "0.0.0.0"),
+			Port: envInt("SERVER_PORT", 8080),
+		},
+		Database: DatabaseConfig{
+			URL: env("DATABASE_URL", "postgres://app:secret@localhost:5432/expenses?sslmode=disable"),
+		},
+		Telegram: TelegramConfig{
+			Token:          os.Getenv("TELEGRAM_TOKEN"),
+			PollTimeout:    envInt("TELEGRAM_POLL_TIMEOUT", 60),
+			ProxyURL:       os.Getenv("TELEGRAM_PROXY"),
+			MaxConcurrency: envInt("TELEGRAM_MAX_CONCURRENCY", 10),
+		},
+		LLM: LLMConfig{
+			Provider:    env("LLM_PROVIDER", "ollama"),
+			BaseURL:     env("LLM_BASE_URL", "http://localhost:11434/v1"),
+			APIKey:      env("OPENAI_API_KEY", "ollama"),
+			Model:       env("LLM_MODEL", "qwen3.8:27b"),
+			Temperature: 0.1,
+			MaxTokens:   envInt("LLM_MAX_TOKENS", 1024),
+			Timeout:     envDuration("LLM_TIMEOUT", 120*time.Second),
+		},
+		Web: WebConfig{
+			Port: envInt("WEB_PORT", 3000),
+		},
 	}
-
-	var cfg Config
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return nil, fmt.Errorf("parse config: %w", err)
-	}
-
-	// Переопределение из переменных окружения
-	if v := os.Getenv("DATABASE_URL"); v != "" {
-		cfg.Database.URL = v
-	}
-	if v := os.Getenv("TELEGRAM_TOKEN"); v != "" {
-		cfg.Telegram.Token = v
-	}
-	if v := os.Getenv("TELEGRAM_PROXY"); v != "" {
-		cfg.Telegram.ProxyURL = v
-	}
-	if v := os.Getenv("OPENAI_API_KEY"); v != "" {
-		cfg.LLM.APIKey = v
-	}
-	if v := os.Getenv("LLM_BASE_URL"); v != "" {
-		cfg.LLM.BaseURL = v
-	}
-	if v := os.Getenv("LLM_API_KEY"); v != "" {
-		cfg.LLM.APIKey = v
-	}
-	if v := os.Getenv("LLM_PROVIDER"); v != "" {
-		cfg.LLM.Provider = v
-	}
-	if v := os.Getenv("LLM_TIMEOUT"); v != "" {
-		d, err := time.ParseDuration(v)
-		if err != nil {
-			return nil, fmt.Errorf("parse LLM_TIMEOUT: %w", err)
-		}
-		cfg.LLM.Timeout = d
-	}
-
-	return &cfg, nil
+	return cfg, nil
 }
 
 func (c *Config) ServerAddr() string {
 	return fmt.Sprintf("%s:%d", c.Server.Host, c.Server.Port)
+}
+
+func env(key, defaultVal string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return defaultVal
+}
+
+func envInt(key string, defaultVal int) int {
+	if v := os.Getenv(key); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			return n
+		}
+		fmt.Printf("WARNING: cannot parse %s=%s, using %d\n", key, v, defaultVal)
+	}
+	return defaultVal
+}
+
+func envDuration(key string, defaultVal time.Duration) time.Duration {
+	if v := os.Getenv(key); v != "" {
+		if d, err := time.ParseDuration(v); err == nil {
+			return d
+		}
+		if n, err := strconv.Atoi(v); err == nil {
+			return time.Duration(n) * time.Second
+		}
+		fmt.Printf("WARNING: cannot parse %s=%s, using %s\n", key, v, defaultVal)
+	}
+	return defaultVal
 }

@@ -3,7 +3,6 @@ package postgres
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -99,6 +98,8 @@ func (r *ExpenseRepository) Delete(ctx context.Context, userID int64, id string)
 }
 
 func (r *ExpenseRepository) List(ctx context.Context, filter domain.ExpenseFilter) ([]*domain.Expense, error) {
+	filter.Normalize()
+
 	query := `
 		SELECT id, user_id, amount, category, spent_at, comment, created_at, updated_at
 		FROM expenses WHERE 1=1
@@ -129,14 +130,12 @@ func (r *ExpenseRepository) List(ctx context.Context, filter domain.ExpenseFilte
 
 	query += " ORDER BY spent_at DESC"
 
-	if filter.Limit > 0 {
-		query += fmt.Sprintf(" LIMIT $%d", argIdx)
-		args = append(args, filter.Limit)
-		argIdx++
-	}
-	if filter.Offset > 0 {
-		query += fmt.Sprintf(" OFFSET $%d", argIdx)
-		args = append(args, filter.Offset)
+	query += fmt.Sprintf(" LIMIT $%d OFFSET $%d", argIdx, argIdx+1)
+	args = append(args, filter.Limit, filter.Offset)
+
+	// Проверяем, не отменён ли контекст перед выполнением запроса
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("list expenses: %w", err)
 	}
 
 	rows, err := r.db.Query(ctx, query, args...)
@@ -255,21 +254,4 @@ func (r *ExpenseRepository) Migrate(ctx context.Context) error {
 	`
 	_, err := r.db.Exec(ctx, schema)
 	return err
-}
-
-// Утилита для сборки WHERE
-func buildWhere(filters map[string]interface{}) (string, []interface{}) {
-	conditions := []string{}
-	args := []interface{}{}
-	idx := 1
-	for field, value := range filters {
-		conditions = append(conditions, fmt.Sprintf("%s = $%d", field, idx))
-		args = append(args, value)
-		idx++
-	}
-	where := ""
-	if len(conditions) > 0 {
-		where = " WHERE " + strings.Join(conditions, " AND ")
-	}
-	return where, args
 }
